@@ -1,0 +1,87 @@
+name: Full Supabase Backup
+
+on:
+  schedule:
+    - cron: "0 0 * * *"   # Daily at 00:00 UTC
+  workflow_dispatch:      # Manual trigger
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    name: Full Supabase Project Backup
+
+    steps:
+
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Install Required Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install postgresql-client zip -y
+          npm install -g supabase
+
+      - name: Create Backup Folder
+        run: |
+          BACKUP_DIR="supabase_backup_$(date +'%Y-%m-%d_%H-%M')"
+          mkdir -p "$BACKUP_DIR"
+          echo "BACKUP_DIR=$BACKUP_DIR" >> $GITHUB_ENV
+
+      - name: Login Supabase CLI
+        run: |
+          supabase login --token "${{ secrets.SUPABASE_ACCESS_TOKEN }}"
+
+      - name: Init Supabase Project Config
+        run: |
+          supabase init --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --dir ${{ env.BACKUP_DIR }}/config
+
+      - name: Download Edge Functions
+        run: |
+          supabase functions download --all --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --dir ${{ env.BACKUP_DIR }}/functions
+
+      - name: Download Storage Buckets
+        run: |
+          supabase storage list --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} | tail -n +3 | awk '{print $1}' > buckets.txt
+          mkdir -p ${{ env.BACKUP_DIR }}/storage
+          while read -r bucket; do
+            echo "Downloading bucket: $bucket"
+            supabase storage download --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} "$bucket" "${{ env.BACKUP_DIR }}/storage/$bucket"
+          done < buckets.txt
+
+      - name: Backup Database (roles, schema, data)
+        run: |
+          mkdir -p ${{ env.BACKUP_DIR }}/database
+          
+          # Schema + roles + extensions
+          PGHOST=${{ secrets.DB_HOST }} \
+          PGUSER=${{ secrets.DB_USER }} \
+          PGPASSWORD=${{ secrets.DB_PASSWORD }} \
+          PGDATABASE=${{ secrets.DB_NAME }} \
+          pg_dump --schema-only > ${{ env.BACKUP_DIR }}/database/schema.sql
+
+          # Full data dump
+          PGHOST=${{ secrets.DB_HOST }} \
+          PGUSER=${{ secrets.DB_USER }} \
+          PGPASSWORD=${{ secrets.DB_PASSWORD }} \
+          PGDATABASE=${{ secrets.DB_NAME }} \
+          pg_dump -Fc > ${{ env.BACKUP_DIR }}/database/data.dump
+
+      - name: Export Supabase Env Vars
+        run: |
+          supabase secrets list --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} > ${{ env.BACKUP_DIR }}/secrets.txt
+
+      - name: Export Policies / Auth Settings
+        run: |
+          supabase gen types typescript --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} > ${{ env.BACKUP_DIR }}/generated_types.ts
+          supabase gen policy --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} > ${{ env.BACKUP_DIR }}/policies.sql
+
+      - name: Zip Backup
+        run: |
+          zip -r "${{ env.BACKUP_DIR }}.zip" "${{ env.BACKUP_DIR }}"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: full-supabase-backup
+          path: ${{ env.BACKUP_DIR }}.zip
+          retention-days: 30
