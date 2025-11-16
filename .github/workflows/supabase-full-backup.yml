@@ -13,7 +13,7 @@ jobs:
     steps:
 
       - name: Checkout Repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Required Tools
         run: |
@@ -37,23 +37,28 @@ jobs:
 
       - name: Download Edge Functions
         run: |
-          supabase functions download --all --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --dir ${{ env.BACKUP_DIR }}/functions
+          supabase functions download --all \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} \
+            --dir ${{ env.BACKUP_DIR }}/functions
 
       - name: Download Storage Buckets
         run: |
-          supabase storage list --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} | tail -n +3 | awk '{print $1}' > buckets.txt
           mkdir -p ${{ env.BACKUP_DIR }}/storage
+          supabase storage list --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} | tail -n +3 | awk '{print $1}' > buckets.txt
           while read -r bucket; do
             echo "Downloading bucket: $bucket"
-            supabase storage download --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} "$bucket" "${{ env.BACKUP_DIR }}/storage/$bucket"
+            supabase storage download \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} \
+              "$bucket" "${{ env.BACKUP_DIR }}/storage/$bucket"
           done < buckets.txt
 
-      - name: Backup Database (roles, schema, data)
+      - name: Backup Database (schema + data)
         run: |
           mkdir -p ${{ env.BACKUP_DIR }}/database
-          
-          # Schema + roles + extensions
+
+          # Schema + roles
           PGHOST=${{ secrets.DB_HOST }} \
+          PGPORT=${{ secrets.DB_PORT }} \
           PGUSER=${{ secrets.DB_USER }} \
           PGPASSWORD=${{ secrets.DB_PASSWORD }} \
           PGDATABASE=${{ secrets.DB_NAME }} \
@@ -61,26 +66,34 @@ jobs:
 
           # Full data dump
           PGHOST=${{ secrets.DB_HOST }} \
+          PGPORT=${{ secrets.DB_PORT }} \
           PGUSER=${{ secrets.DB_USER }} \
           PGPASSWORD=${{ secrets.DB_PASSWORD }} \
           PGDATABASE=${{ secrets.DB_NAME }} \
           pg_dump -Fc > ${{ env.BACKUP_DIR }}/database/data.dump
 
-      - name: Export Supabase Env Vars
+      - name: Export Supabase Secrets
         run: |
-          supabase secrets list --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} > ${{ env.BACKUP_DIR }}/secrets.txt
+          supabase secrets list --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} \
+            > ${{ env.BACKUP_DIR }}/secrets.txt
 
-      - name: Export Policies / Auth Settings
+      - name: Export Supabase Policies
         run: |
-          supabase gen types typescript --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} > ${{ env.BACKUP_DIR }}/generated_types.ts
-          supabase gen policy --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} > ${{ env.BACKUP_DIR }}/policies.sql
+          supabase gen policy --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} \
+            > ${{ env.BACKUP_DIR }}/policies.sql
+
+      - name: Export Supabase Types
+        run: |
+          supabase gen types typescript \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} \
+            > ${{ env.BACKUP_DIR }}/generated_types.ts
 
       - name: Zip Backup
         run: |
           zip -r "${{ env.BACKUP_DIR }}.zip" "${{ env.BACKUP_DIR }}"
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: full-supabase-backup
           path: ${{ env.BACKUP_DIR }}.zip
