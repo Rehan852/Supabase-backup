@@ -20,9 +20,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install postgresql-client zip curl -y
 
-          # Install Supabase CLI (official binary)
-          curl -sL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64 \
-            -o supabase
+          # Determine architecture (GitHub runners may be ARM64 or AMD64)
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            FILE="supabase_linux_amd64"
+          elif [ "$ARCH" = "aarch64" ]; then
+            FILE="supabase_linux_arm64"
+          else
+            echo "Unsupported architecture: $ARCH"
+            exit 1
+          fi
+
+          echo "Installing Supabase CLI for $ARCH"
+          curl -sL "https://github.com/supabase/cli/releases/latest/download/$FILE" -o supabase
           chmod +x supabase
           sudo mv supabase /usr/local/bin/supabase
 
