@@ -18,8 +18,13 @@ jobs:
       - name: Install Required Tools
         run: |
           sudo apt-get update
-          sudo apt-get install postgresql-client zip -y
-          npm install -g supabase
+          sudo apt-get install postgresql-client zip curl -y
+
+          # Install Supabase CLI (official binary)
+          curl -sL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64 \
+            -o supabase
+          chmod +x supabase
+          sudo mv supabase /usr/local/bin/supabase
 
       - name: Create Backup Folder
         run: |
